@@ -1,0 +1,128 @@
+ /**
+     * 发送命令数据
+     *
+     * @param order
+     */
+    public void sendControl(String order) {
+        byte[] cmd_param = new byte[4];
+        byte cmd;
+
+        switch (order) {
+            case ConstantKeys.CAR_CONTROL_AUTH: // 设置授权
+                if(mCarInfo.getPeps_config() == null){
+                    LogUtils.e(TAG, "设置授权失败， PepsConfig = null");
+                    return;
+                }
+
+                this.auth = mCarInfo.getPeps_config().getAuth();
+                LogUtils.e(TAG, "设置授权， auth = " + auth);
+
+                cmd = CODE_CONTROL_AUTH;
+                cmd_param[0] = 0x02;
+                cmd_param[1] = 0x21;
+                cmd_param[2] = (byte) (auth / 256);//授权类型b0-b2:1:普通授权 ,有效期单位b5: 1：分钟
+                cmd_param[3] = (byte) (auth);//10分钟
+                break;
+
+            case ConstantKeys.CAR_CONTROL_UNLOCK:    // 开锁
+                cmd = CODE_CONTROL_UNLOCK;
+                MyControl.getPlaySound().play(PlaySound.SOUND_TYPE_UNLOCK);
+                cmd_param[0] = 0x03;
+                cmd_param[1] = (byte) 0x81;
+                cmd_param[2] = 0x01;
+                cmd_param[3] = 0x00;
+                break;
+            case ConstantKeys.CAR_CONTROL_LOCK:  // 锁车
+                cmd = CODE_CONTROL_LOCK;
+                MyControl.getPlaySound().play(PlaySound.SOUND_TYPE_LOCK);
+                cmd_param[0] = 0x03;
+                cmd_param[1] = (byte) 0x81;
+                cmd_param[2] = 0x00;
+                cmd_param[3] = 0x00;
+                break;
+            case ConstantKeys.CAR_CONTROL_START: // 启动
+                cmd = CODE_CONTROL_START;
+                MyControl.getPlaySound().play(PlaySound.SOUND_TYPE_START);
+                cmd_param[0] = 0x03;
+                cmd_param[1] = (byte) 0x84;
+                cmd_param[2] = 30;
+                cmd_param[3] = 0x00;
+                break;
+            case ConstantKeys.CAR_CONTROL_STALL: // 熄火
+                cmd = CODE_CONTROL_SHUT_DOWN;
+                MyControl.getPlaySound().play(PlaySound.SOUND_TYPE_SHUT_DOWN);
+                cmd_param[0] = 0x03;
+                cmd_param[1] = (byte) 0x85;
+                cmd_param[2] = 0x00;
+                cmd_param[3] = 0x00;
+                break;
+
+            case ConstantKeys.CAR_CONTROL_SEARCH:  // 寻车
+            default:
+                cmd = CODE_CONTROL_FIND;
+                MyControl.getPlaySound().play(PlaySound.SOUND_TYPE_FINDE);
+                cmd_param[0] = 0x03;
+                cmd_param[1] = (byte) 0x82;
+                cmd_param[2] = 0x00;
+                cmd_param[3] = 0x00;
+                break;
+        }
+
+        LogUtils.e(TAG, "发送蓝牙命令：" + cmd + "  ID = " + mDevName);
+
+        byte[] data = new byte[20];
+        byte[] indata = new byte[16];
+        byte[] endata;
+        for (int i = 0, j = 0; i < 8; i++, j++) {// 动态口令
+            indata[j] = tokenOld[i];
+        }
+        indata[8] = (byte) (mDevName / 256 / 256 / 256);//设备ID
+        indata[9] = (byte) (mDevName / 256 / 256);
+        indata[10] = (byte) (mDevName / 256);
+        indata[11] = (byte) (mDevName % 256);
+        indata[12] = cmd_param[0];//
+        indata[13] = cmd_param[1];//
+        indata[14] = cmd_param[2];
+        indata[15] = cmd_param[3];
+
+        LogUtils.e(TAG, "发送数据 明文 = " + StringUtils.bytes2HexDivideStr(indata));
+
+        endata = aes128Utils.DataEncrypt(indata);// 加密
+        data[0] = 18;
+        data[1] = DATE_TYPE_SEND_ORDER;
+        data[2] = (byte) 0x00;
+        data[3] = (byte) 0x00;
+        for (int i = 0, j = 4; i < 16; i++, j++) {//
+            data[j] = endata[i];
+        }
+
+        sendBleData(data);
+    }
+	
+	
+    /**
+     * 蓝牙设备搜索结果
+     * @param bluetoothDevice 蓝牙设备
+     * @return  确认是否该设备
+     */
+    @Override
+    protected boolean checkFoundResult(BluetoothDevice bluetoothDevice) {
+        if(bluetoothDevice == null){
+            return false;
+        }
+
+        String name = bluetoothDevice.getName(); // 该蓝牙设备名字
+        String head = "AOD T";
+        if (name != null && name.contains(head)) {
+            String devNameHex = name.substring(head.length(), name.length());
+            int devName = StringUtils.hexStr2Int(devNameHex);   // 结果设备id
+            if (devName == mDevName && TextUtils.isEmpty(mMacAddress)) {  // 找到这个设备
+                LogUtils.i(TAG, "find 搜索到设备 = " + mDevName);
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+
